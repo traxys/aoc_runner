@@ -5,8 +5,6 @@ use std::{
     fs::{File, OpenOptions},
     io::Write,
     path::PathBuf,
-    time::Duration,
-    time::Instant,
 };
 use structopt::StructOpt;
 
@@ -15,6 +13,17 @@ macro_rules! poss_values {
         &[$(stringify!($value),)*]
     };
 }
+
+const DAY_EXEC_TEMPLATE: &str = r#"
+use aoc_2020::{problems::{{day}}::execute, DayContext};
+
+fn main() -> color_eyre::Result<()> {
+    let mut context = DayContext::load()?;
+    execute(&mut context)?;
+    context.report_timings();
+    Ok(())
+}
+"#;
 
 #[derive(StructOpt)]
 struct Args {
@@ -64,7 +73,7 @@ async fn main() -> color_eyre::Result<()> {
 
     let day = args.day.unwrap_or_else(|| chrono::Local::now().day() as u8);
 
-    let mut input = args.input_dir;
+    let mut input = args.input_dir.clone();
     input.push(format!("day{}", day));
 
     if !input.exists() {
@@ -99,11 +108,31 @@ async fn main() -> color_eyre::Result<()> {
             .with_context(|| format!("Could not write to file {:?}", input))?;
     }
 
-    let now = Instant::now();
+    let executable: PathBuf = format!("src/bin/day{}.rs", day).into();
+    if !executable.exists() {
+        let reg = handlebars::Handlebars::new();
+        let exec_code = reg
+            .render_template(
+                DAY_EXEC_TEMPLATE,
+                &serde_json::json!({ "day": format!("day{}", day) }),
+            )
+            .with_context(|| "Could not render day binary template")?;
+        let mut exec_file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(executable)
+            .with_context(|| "Could not open the bin/day file")?;
+        exec_file
+            .write_all(exec_code.as_bytes())
+            .with_context(|| "Could not write the bin/day file")?;
+    }
+
     tokio::process::Command::new("cargo")
         .args(&[
             "run",
             "--release",
+            "--bin",
+            &format!("day{}", day),
             "--",
             "--part",
             &format!("{}", args.part),
@@ -113,22 +142,6 @@ async fn main() -> color_eyre::Result<()> {
         .status()
         .await
         .with_context(|| "Could not execute the program")?;
-    let elapsed = now.elapsed().as_nanos() as f64;
-
-    print!("Time taken: ");
-
-    let secs_ns = (10.0f64).powi(9);
-    let ms_ns = (10.0f64).powi(6);
-    let us_ns = (10.0f64).powi(3);
-    if elapsed > secs_ns {
-        println!("{:02}s", elapsed / secs_ns);
-    } else if elapsed > ms_ns {
-        println!("{:02}ms", elapsed / ms_ns)
-    } else if elapsed > us_ns {
-        println!("{:02}us", elapsed / us_ns)
-    } else {
-        println!("{:02}ns", elapsed)
-    }
 
     Ok(())
 }
