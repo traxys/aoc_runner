@@ -14,21 +14,45 @@ macro_rules! poss_values {
     };
 }
 
-const DAY_EXEC_TEMPLATE: &str = r#"
-use aoc_2020::{problems::{{day}}::execute, DayContext};
+const DAY_EXEC_TEMPLATE: &str = r#"use aoc_2020::{problems::{{day}}::execute, DayContext};
 
 fn main() -> color_eyre::Result<()> {
     let mut context = DayContext::load()?;
     execute(&mut context)?;
     context.report_timings();
     Ok(())
+}"#;
+const DAY_PROBLEM_STUB: &str = r#"use crate::DayContext;
+
+pub fn part_1(_: ()) -> color_eyre::Result<String> {
+    todo!()
 }
-"#;
+
+pub fn part_2(_: ()) -> color_eyre::Result<String> {
+    todo!()
+}
+
+pub fn execute(context: &mut DayContext) -> color_eyre::Result<()> {
+    let input = ();
+    context.execute(input, part_1, part_2)
+}"#;
 
 #[derive(StructOpt)]
 struct Args {
     #[structopt(short, long, possible_values=poss_values!(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24))]
     day: Option<u8>,
+    #[structopt(subcommand)]
+    command: Command,
+}
+
+#[derive(StructOpt)]
+enum Command {
+    Run(RunCommand),
+    Stub,
+}
+
+#[derive(StructOpt)]
+struct RunCommand {
     #[structopt(short, long)]
     year: Option<u16>,
     #[structopt(short, long, default_value="1", possible_values=&["1", "2"])]
@@ -42,15 +66,12 @@ struct Data {
     session: String,
 }
 
-#[tokio::main]
-async fn main() -> color_eyre::Result<()> {
-    let args = Args::from_args();
-
+async fn run(args: RunCommand, day: u8) -> color_eyre::Result<()> {
     let mut data_dir = dirs_next::data_dir().ok_or(color_eyre::eyre::eyre!("No data dir found"))?;
     data_dir.push("aoc_runner.json");
 
     let data = if !data_dir.exists() {
-        let session = promptly::prompt("Your session value:")?;
+        let session = promptly::prompt("Your session value")?;
         let d = Data { session };
         serde_json::to_writer_pretty(
             OpenOptions::new()
@@ -71,10 +92,9 @@ async fn main() -> color_eyre::Result<()> {
         .with_context(|| "Could not read data file")?
     };
 
-    let day = args.day.unwrap_or_else(|| chrono::Local::now().day() as u8);
-
+    let day_name = format!("day{}", day);
     let mut input = args.input_dir.clone();
-    input.push(format!("day{}", day));
+    input.push(&day_name);
 
     if !input.exists() {
         let year = args
@@ -108,14 +128,11 @@ async fn main() -> color_eyre::Result<()> {
             .with_context(|| format!("Could not write to file {:?}", input))?;
     }
 
-    let executable: PathBuf = format!("src/bin/day{}.rs", day).into();
+    let executable: PathBuf = format!("src/bin/{}.rs", day_name).into();
     if !executable.exists() {
         let reg = handlebars::Handlebars::new();
         let exec_code = reg
-            .render_template(
-                DAY_EXEC_TEMPLATE,
-                &serde_json::json!({ "day": format!("day{}", day) }),
-            )
+            .render_template(DAY_EXEC_TEMPLATE, &serde_json::json!({ "day": &day_name }))
             .with_context(|| "Could not render day binary template")?;
         let mut exec_file = OpenOptions::new()
             .create_new(true)
@@ -132,7 +149,7 @@ async fn main() -> color_eyre::Result<()> {
             "run",
             "--release",
             "--bin",
-            &format!("day{}", day),
+            &day_name,
             "--",
             "--part",
             &format!("{}", args.part),
@@ -142,6 +159,36 @@ async fn main() -> color_eyre::Result<()> {
         .status()
         .await
         .with_context(|| "Could not execute the program")?;
+
+    Ok(())
+}
+
+fn stub(day: u8) -> color_eyre::Result<()> {
+    let stub = format!("src/problems/day{}.rs", day);
+    let mut stub = OpenOptions::new().create_new(true).write(true).open(stub)?;
+    stub.write_all(DAY_PROBLEM_STUB.as_bytes())?;
+
+    // We are sure that we don't have the `pub mod dayX` in the problems/mod.rs file
+    // because we would have exited on error else
+    let mut mod_file = OpenOptions::new()
+        .append(true)
+        .write(true)
+        .create(false)
+        .open("src/problems/mod.rs")?;
+    mod_file.write_all(format!("pub mod day{};", day).as_bytes())?;
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> color_eyre::Result<()> {
+    let args = Args::from_args();
+    let day = args.day.unwrap_or_else(|| chrono::Local::now().day() as u8);
+
+    match args.command {
+        Command::Run(command) => run(command, day).await?,
+        Command::Stub => stub(day)?,
+    }
 
     Ok(())
 }
