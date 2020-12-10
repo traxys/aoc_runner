@@ -24,16 +24,22 @@ fn main() -> color_eyre::Result<()> {
 }"#;
 const DAY_PROBLEM_STUB: &str = r#"use crate::DayContext;
 
-pub fn part_1(_: ()) -> color_eyre::Result<String> {
+type Input = ();
+
+pub fn part_1(_: Input) -> color_eyre::Result<String> {
     todo!()
 }
 
-pub fn part_2(_: ()) -> color_eyre::Result<String> {
+pub fn part_2(_: Input) -> color_eyre::Result<String> {
     todo!()
+}
+
+pub fn parsing(_: &mut DayContext) -> color_eyre::Result<Input> {
+    ()
 }
 
 pub fn execute(context: &mut DayContext) -> color_eyre::Result<()> {
-    let input = ();
+    let input = parsing(context);
     context.execute(input, part_1, part_2)
 }"#;
 
@@ -148,6 +154,8 @@ async fn run(args: RunCommand, day: u8) -> color_eyre::Result<()> {
         .args(&[
             "run",
             "--release",
+            "--features",
+            &day_name,
             "--bin",
             &day_name,
             "--",
@@ -165,8 +173,13 @@ async fn run(args: RunCommand, day: u8) -> color_eyre::Result<()> {
 
 fn stub(day: u8) -> color_eyre::Result<()> {
     let stub = format!("src/problems/day{}.rs", day);
-    let mut stub = OpenOptions::new().create_new(true).write(true).open(stub)?;
-    stub.write_all(DAY_PROBLEM_STUB.as_bytes())?;
+    let mut stub = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(stub)
+        .with_context(|| "Could not open day stub file")?;
+    stub.write_all(DAY_PROBLEM_STUB.as_bytes())
+        .with_context(|| "Could not write day stub")?;
 
     // We are sure that we don't have the `pub mod dayX` in the problems/mod.rs file
     // because we would have exited on error else
@@ -174,8 +187,17 @@ fn stub(day: u8) -> color_eyre::Result<()> {
         .append(true)
         .write(true)
         .create(false)
-        .open("src/problems/mod.rs")?;
-    mod_file.write_all(format!("pub mod day{};", day).as_bytes())?;
+        .open("src/problems/mod.rs")
+        .with_context(|| "Could not open mod file")?;
+    mod_file
+        .write_all(
+            format!(
+                "#[cfg(feature = \"day{day}\"]\npub mod day{day};\n",
+                day = day
+            )
+            .as_bytes(),
+        )
+        .with_context(|| "Could not edit the mod file")?;
 
     Ok(())
 }
