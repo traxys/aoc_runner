@@ -35,11 +35,11 @@ pub fn part_2(_: Input) -> color_eyre::Result<String> {
 }
 
 pub fn parsing(_: &mut DayContext) -> color_eyre::Result<Input> {
-    ()
+    Ok(())
 }
 
 pub fn execute(context: &mut DayContext) -> color_eyre::Result<()> {
-    let input = parsing(context);
+    let input = parsing(context)?;
     context.execute(input, part_1, part_2)
 }"#;
 
@@ -192,7 +192,7 @@ fn stub(day: u8) -> color_eyre::Result<()> {
     mod_file
         .write_all(
             format!(
-                "#[cfg(feature = \"day{day}\"]\npub mod day{day};\n",
+                "#[cfg(feature = \"day{day}\")]\npub mod day{day};\n",
                 day = day
             )
             .as_bytes(),
